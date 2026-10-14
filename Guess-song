@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎵 節奏大師：多人連線猜歌</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --panel-bg: #1e293b;
+      --primary: #8b5cf6;
+      --primary-hover: #7c3aed;
+      --accent: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--panel-bg);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      padding: 30px;
+      box-sizing: border-box;
+    }
+    .screen { display: none; }
+    .screen.active { display: block; animation: fadeIn 0.4s ease; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    h1, h2, h3 { text-align: center; margin-top: 0; }
+    h1 { color: var(--primary); text-shadow: 0 0 10px rgba(139, 92, 246, 0.5); }
+    
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 15px;
+      transition: all 0.2s;
+    }
+    button:hover { background: var(--primary-hover); transform: scale(1.02); }
+    button.btn-secondary { background: #334155; }
+    button.btn-secondary:hover { background: #475569; }
+    button.btn-danger { background: #ef4444; }
+    button.btn-danger:hover { background: #dc2626; }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 15px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: white;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    .player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .player-card { background: #334155; padding: 15px; border-radius: 10px; text-align: center; }
+    .player-card.empty { border: 2px dashed #475569; background: transparent; color: var(--text-muted); }
+
+    .timer-bar { width: 100%; height: 10px; background: #334155; border-radius: 5px; margin-bottom: 20px; overflow: hidden; }
+    .timer-fill { height: 100%; background: var(--accent); width: 100%; transition: width 1s linear; }
+    .question-box { background: #0f172a; padding: 30px 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #334155; }
+    .answer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .answer-btn { margin-bottom: 0; background: #334155; }
+    .answer-btn:hover { background: var(--primary); }
+
+    .live-scoreboard { margin-bottom: 20px; padding: 15px; background: #0f172a; border-radius: 10px; border: 1px solid #334155; }
+    .score-row { display: flex; align-items: center; margin-bottom: 8px; }
+    .score-name { width: 80px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .score-bar-bg { flex-grow: 1; height: 12px; background: #334155; border-radius: 6px; margin: 0 10px; overflow: hidden; }
+    .score-bar-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.3s ease; }
+    .score-text { width: 40px; text-align: right; font-weight: bold; color: var(--accent); }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+  
+  <div id="screen-welcome" class="screen active">
+    <h1>🎵 節奏大師</h1>
+    <p style="text-align: center; color: var(--text-muted);">搶 100 分殊死戰</p>
+    <div style="margin-top: 40px;">
+      <input type="text" id="playerNameInput" placeholder="輸入你的專屬暱稱" value="玩家1" />
+      <button onclick="createRoom()">👑 創建房間</button>
+      <div style="display: flex; gap: 10px; align-items: center; margin-top: 20px;">
+        <input type="text" id="roomCodeInput" placeholder="輸入 4 碼房間代碼" maxlength="4" style="margin-bottom: 0;" />
+        <button onclick="joinRoom()" class="btn-secondary" style="margin-bottom: 0;">加入</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-lobby" class="screen">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <h2 style="margin: 0;">房間代碼: <span id="displayRoomCode" style="color: var(--accent);"></span></h2>
+      <span style="background: #334155; padding: 5px 10px; border-radius: 5px; font-size: 14px;">👑 房主</span>
+    </div>
+
+    <div class="player-grid" id="playerGrid"></div>
+    <button onclick="addBot()" class="btn-secondary" id="btnAddBot">🤖 新增人機玩家</button>
+
+    <div style="background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 20px; margin-top: 10px;">
+      <h3 style="font-size: 16px; margin-bottom: 15px; text-align: left;">⚙️ 遊戲設定</h3>
+      <select id="settingSinger"><option>華語流行</option><option>動漫神曲</option></select>
+      <select id="settingMode"><option value="answer">⏱️ 答題模式</option><option value="mixed">🎭 混合模式</option></select>
+    </div>
+
+    <button onclick="startGame()" style="font-size: 20px; padding: 15px;">▶ 開始遊戲 (目標 100 分！)</button>
+  </div>
+
+  <div id="screen-game" class="screen">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center;">
+      <h3 style="margin: 0; color: var(--primary);">第 <span id="roundNumber">1</span> 題</h3>
+      <span style="background: #334155; padding: 5px 10px; border-radius: 5px; font-size: 14px; color: var(--accent);">目標：100 分</span>
+    </div>
+    
+    <div class="live-scoreboard" id="liveScoreboard"></div>
+
+    <div class="timer-bar"><div class="timer-fill" id="timerFill"></div></div>
+
+    <div class="question-box">
+      <h3 style="color: var(--primary); margin-bottom: 10px;">🎵 正在播放曲目...</h3>
+      <div style="height: 40px; display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 15px;">
+        <div style="width: 5px; height: 100%; background: var(--accent); animation: pulse 0.5s infinite alternate;"></div>
+        <div style="width: 5px; height: 60%; background: var(--accent); animation: pulse 0.7s infinite alternate;"></div>
+        <div style="width: 5px; height: 80%; background: var(--accent); animation: pulse 0.6s infinite alternate;"></div>
+      </div>
+    </div>
+
+    <!-- 答題區 -->
+    <div class="answer-grid">
+      <!-- 模擬答題得分：可能拿高分，也可能拿低分 -->
+      <button class="answer-btn" onclick="submitAnswer(Math.floor(Math.random() * 3) + 8)">完美命中 (約 +8~10 分)</button>
+      <button class="answer-btn" onclick="submitAnswer(Math.floor(Math.random() * 3) + 4)">勉強猜對 (約 +4~6 分)</button>
+      <button class="answer-btn" onclick="submitAnswer(1)">慢吞吞 (只加 1 分)</button>
+      <button class="answer-btn" onclick="submitAnswer(0)">答錯 (0 分)</button>
+    </div>
+  </div>
+
+  <div id="screen-result" class="screen">
+    <h2>🏆 遊戲結束！</h2>
+    <h3 style="color: var(--accent); margin-bottom: 20px;"><span id="winnerName">玩家1</span> 率先達到 100 分！</h3>
+    
+    <!-- 加了一個捲軸設定，以免題數太多時圖表擠成一團 -->
+    <div style="background: white; padding: 10px; border-radius: 10px; margin-bottom: 20px; overflow-x: auto;">
+      <div style="min-width: 400px;" id="chartContainer">
+        <canvas id="scoreChart" height="250"></canvas>
+      </div>
+    </div>
+
+    <button onclick="playAgain()">🔄 再來一局</button>
+    <button onclick="disbandRoom()" class="btn-danger">❌ 解散房間</button>
+  </div>
+
+</div>
+
+<script>
+  const style = document.createElement('style');
+  style.innerHTML = `@keyframes pulse { 0% { height: 20%; } 100% { height: 100%; } }`;
+  document.head.appendChild(style);
+
+  let players = [];
+  let roomCode = "";
+  let chartInstance = null;
+  let currentRound = 1;
+  const WINNING_SCORE = 100;
+  let scoreHistory = {}; 
+
+  function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+  }
+
+  function createRoom() {
+    const name = document.getElementById('playerNameInput').value || "玩家1";
+    players = [{ id: 0, name: name, isBot: false, score: 0 }];
+    roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    document.getElementById('displayRoomCode').innerText = roomCode;
+    updateLobby();
+    showScreen('screen-lobby');
+  }
+
+  function joinRoom() { createRoom(); } 
+
+  function addBot() {
+    if (players.length >= 4) return;
+    const botNames = ["🤖 阿呆", "🤖 小音", "🤖 節奏"];
+    players.push({ 
+      id: players.length, 
+      name: botNames[players.length - 1], 
+      isBot: true, 
+      score: 0 
+    });
+    updateLobby();
+  }
+
+  function updateLobby() {
+    const grid = document.getElementById('playerGrid');
+    grid.innerHTML = "";
+    for(let i=0; i<4; i++) {
+      if(players[i]) grid.innerHTML += `<div class="player-card">${players[i].name}</div>`;
+      else grid.innerHTML += `<div class="player-card empty">等待加入...</div>`;
+    }
+    document.getElementById('btnAddBot').style.display = players.length >= 4 ? 'none' : 'block';
+  }
+
+  function startGame() {
+    currentRound = 1;
+    players.forEach(p => { 
+      p.score = 0; 
+      // 第 0 題分數為 0
+      scoreHistory[p.id] = [0]; 
+    });
+    updateLiveScoreboard();
+    document.getElementById('roundNumber').innerText = currentRound;
+    showScreen('screen-game');
+  }
+
+  function updateLiveScoreboard() {
+    const board = document.getElementById('liveScoreboard');
+    board.innerHTML = "";
+    
+    players.forEach(p => {
+      // 確保進度條最多就是填滿 100%
+      const percentage = Math.min((p.score / WINNING_SCORE) * 100, 100);
+      board.innerHTML += `
+        <div class="score-row">
+          <div class="score-name">${p.name}</div>
+          <div class="score-bar-bg">
+            <div class="score-bar-fill" style="width: ${percentage}%"></div>
+          </div>
+          <div class="score-text">${p.score}</div>
+        </div>
+      `;
+    });
+  }
+
+  // 接收你點擊的按鈕所帶來獲得的分數
+  function submitAnswer(pointsGained) {
+    // 真人玩家加分
+    players[0].score += pointsGained;
+    scoreHistory[players[0].id].push(players[0].score);
+
+    // 機器人隨機加分 (0~8分)
+    players.forEach(p => {
+      if(p.isBot) {
+        const botPoints = Math.floor(Math.random() * 9); 
+        p.score += botPoints;
+        scoreHistory[p.id].push(p.score);
+      }
+    });
+
+    updateLiveScoreboard();
+
+    // **關鍵邏輯：檢查是否有任何人達到或超過 100 分**
+    let winner = players.find(p => p.score >= WINNING_SCORE);
+    
+    if (winner) {
+      // 如果有人破百，遊戲強制結束！
+      document.getElementById('winnerName').innerText = winner.name + " (" + winner.score + " 分)";
+      endGame();
+    } else {
+      // 如果沒有任何人破百，就進入下一題！無極限往下加！
+      currentRound++;
+      document.getElementById('roundNumber').innerText = currentRound;
+    }
+  }
+
+  function endGame() {
+    showScreen('screen-result');
+    renderChart();
+  }
+
+  function renderChart() {
+    const ctx = document.getElementById('scoreChart').getContext('2d');
+    if (chartInstance) chartInstance.destroy();
+
+    // 動態產生 X 軸，你玩了 30 題，X 軸就有 30 格
+    const labels = Array.from({length: currentRound + 1}, (_, i) => i === 0 ? '開始' : `第${i}題`);
+    const colors = ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+
+    const datasets = players.map((p, index) => ({
+      label: p.name,
+      data: scoreHistory[p.id],
+      borderColor: colors[index % colors.length],
+      tension: 0.3,
+      fill: false
+    }));
+
+    // 為了避免題數太多圖表擠在一起，動態加寬畫布
+    const chartWidth = Math.max(400, (currentRound * 30)); 
+    document.getElementById('chartContainer').style.width = chartWidth + 'px';
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: '通往 100 分的飆分之路' } },
+        scales: { 
+          y: { beginAtZero: true, suggestedMax: 100 } 
+        } 
+      }
+    });
+  }
+
+  function playAgain() { showScreen('screen-lobby'); }
+  function disbandRoom() { showScreen('screen-welcome'); }
+</script>
+</body>
+</html>
