@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎵 節奏大師：多人連線猜歌</title>
+  <!-- 引入 Chart.js 用來畫賽後折線圖 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --panel-bg: #1e293b;
+      --primary: #8b5cf6;
+      --primary-hover: #7c3aed;
+      --accent: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--panel-bg);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      padding: 30px;
+      box-sizing: border-box;
+    }
+    .screen { display: none; }
+    .screen.active { display: block; animation: fadeIn 0.4s ease; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    h1, h2, h3 { text-align: center; margin-top: 0; }
+    h1 { color: var(--primary); text-shadow: 0 0 10px rgba(139, 92, 246, 0.5); }
+    
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 15px;
+      transition: all 0.2s;
+    }
+    button:hover { background: var(--primary-hover); transform: scale(1.02); }
+    button.btn-secondary { background: #334155; }
+    button.btn-secondary:hover { background: #475569; }
+    button.btn-danger { background: #ef4444; }
+    button.btn-danger:hover { background: #dc2626; }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 15px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: white;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    /* 大廳玩家列表 */
+    .player-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .player-card {
+      background: #334155;
+      padding: 15px;
+      border-radius: 10px;
+      text-align: center;
+      position: relative;
+    }
+    .player-card.empty { border: 2px dashed #475569; background: transparent; color: var(--text-muted); }
+
+    /* 遊戲畫面 */
+    .timer-bar {
+      width: 100%;
+      height: 10px;
+      background: #334155;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .timer-fill {
+      height: 100%;
+      background: var(--accent);
+      width: 100%;
+      transition: width 1s linear;
+    }
+    .question-box {
+      background: #0f172a;
+      padding: 30px 20px;
+      border-radius: 15px;
+      text-align: center;
+      margin-bottom: 20px;
+      border: 1px solid #334155;
+    }
+    .answer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .answer-btn { margin-bottom: 0; background: #334155; }
+    .answer-btn:hover { background: var(--primary); }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+  
+  <!-- 1. 歡迎與加入畫面 -->
+  <div id="screen-welcome" class="screen active">
+    <h1>🎵 節奏大師</h1>
+    <p style="text-align: center; color: var(--text-muted);">多人連線猜歌系統</p>
+    <div style="margin-top: 40px;">
+      <input type="text" id="playerNameInput" placeholder="輸入你的專屬暱稱" value="玩家1" />
+      <button onclick="createRoom()">👑 創建房間</button>
+      <div style="display: flex; gap: 10px; align-items: center; margin-top: 20px;">
+        <input type="text" id="roomCodeInput" placeholder="輸入 4 碼房間代碼" maxlength="4" style="margin-bottom: 0;" />
+        <button onclick="joinRoom()" class="btn-secondary" style="margin-bottom: 0; white-space: nowrap;">加入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 房間大廳與設定畫面 -->
+  <div id="screen-lobby" class="screen">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <h2 style="margin: 0;">房間代碼: <span id="displayRoomCode" style="color: var(--accent);"></span></h2>
+      <span style="background: #334155; padding: 5px 10px; border-radius: 5px; font-size: 14px;">👑 房主</span>
+    </div>
+
+    <div class="player-grid" id="playerGrid">
+      <!-- 玩家卡片會由 JS 動態產生 -->
+    </div>
+    <button onclick="addBot()" class="btn-secondary" id="btnAddBot">🤖 新增人機玩家</button>
+
+    <div style="background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 20px; margin-top: 10px;">
+      <h3 style="font-size: 16px; margin-bottom: 15px; text-align: left;">⚙️ 遊戲設定 (僅房主可更改)</h3>
+      <label>歌手 / 曲庫</label>
+      <select id="settingSinger">
+        <option>熱門華語流行</option>
+        <option>周杰倫專場</option>
+        <option>動漫神曲 (ACG)</option>
+        <option>西洋流行 (Billboard)</option>
+      </select>
+      
+      <label>難度 (影響冷門度與作答時間)</label>
+      <select id="settingDifficulty">
+        <option>簡單 (時間充裕, 熱門歌)</option>
+        <option>普通 (標準模式)</option>
+        <option>地獄 (10秒極限, 包含B面曲)</option>
+      </select>
+
+      <label>遊戲模式</label>
+      <select id="settingMode">
+        <option value="answer">⏱️ 答題模式 (越快答對分數越高)</option>
+        <option value="speed">⚡ 極速模式 (一人按鈴搶答)</option>
+        <option value="mixed">🎭 混合模式 (聽曲 + 歌詞提示)</option>
+      </select>
+    </div>
+
+    <button onclick="startGame()" style="font-size: 20px; padding: 15px;">▶ 開始遊戲</button>
+  </div>
+
+  <!-- 3. 遊戲進行畫面 -->
+  <div id="screen-game" class="screen">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+      <span>模式: <span id="gameModeDisplay" style="color: var(--accent);"></span></span>
+      <span>目標: 100 分</span>
+    </div>
+    
+    <div class="timer-bar"><div class="timer-fill" id="timerFill"></div></div>
+
+    <div class="question-box">
+      <h3 style="color: var(--primary); margin-bottom: 10px;">🎵 正在播放曲目...</h3>
+      <p id="lyricHint" style="display: none; font-style: italic; color: #93c5fd;">「...把你寫進我的詞裡，帶你穿梭...」</p>
+      <div style="height: 40px; display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 15px;">
+        <!-- 模擬音頻波形 -->
+        <div style="width: 5px; height: 100%; background: var(--accent); animation: pulse 0.5s infinite alternate;"></div>
+        <div style="width: 5px; height: 60%; background: var(--accent); animation: pulse 0.7s infinite alternate;"></div>
+        <div style="width: 5px; height: 80%; background: var(--accent); animation: pulse 0.6s infinite alternate;"></div>
+      </div>
+    </div>
+
+    <!-- 模擬的四個選項 -->
+    <div class="answer-grid">
+      <button class="answer-btn" onclick="submitAnswer()">夜曲</button>
+      <button class="answer-btn" onclick="submitAnswer()">七里香</button>
+      <button class="answer-btn" onclick="submitAnswer()">晴天</button>
+      <button class="answer-btn" onclick="submitAnswer()">擱淺</button>
+    </div>
+
+    <!-- 開發者測試按鈕：直接跳轉結算畫面 -->
+    <button onclick="endGame()" class="btn-danger" style="margin-top: 30px;">(測試用) 直接結束遊戲看報表</button>
+  </div>
+
+  <!-- 4. 賽後報表與折線圖畫面 -->
+  <div id="screen-result" class="screen">
+    <h2>🏆 遊戲結算</h2>
+    
+    <!-- Chart.js 畫布 -->
+    <div style="background: white; padding: 10px; border-radius: 10px; margin-bottom: 20px;">
+      <canvas id="scoreChart" width="400" height="250"></canvas>
+    </div>
+
+    <div style="background: #0f172a; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 10px; text-align: left;">📊 賽後報表</h3>
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #334155; padding-bottom: 5px; margin-bottom: 5px;">
+        <span>🥇 玩家1</span>
+        <span style="color: var(--accent); font-weight: bold;">100 分 (平均反應: 1.2s)</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding-bottom: 5px;">
+        <span>🥈 機器人_阿呆</span>
+        <span style="color: #94a3b8;">75 分 (平均反應: 2.5s)</span>
+      </div>
+    </div>
+
+    <button onclick="playAgain()">🔄 再來一局 (回到大廳設定)</button>
+    <button onclick="disbandRoom()" class="btn-danger">❌ 解散房間</button>
+  </div>
+
+</div>
+
+<script>
+  // 音頻波形動畫 CSS
+  const style = document.createElement('style');
+  style.innerHTML = `@keyframes pulse { 0% { height: 20%; } 100% { height: 100%; } }`;
+  document.head.appendChild(style);
+
+  // 狀態變數
+  let players = [];
+  let roomCode = "";
+  let chartInstance = null;
+
+  // 畫面切換控制
+  function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+  }
+
+  // 1. 創建房間
+  function createRoom() {
+    const name = document.getElementById('playerNameInput').value || "玩家1";
+    players = [{ name: name, isBot: false }];
+    roomCode = Math.floor(1000 + Math.random() * 9000).toString(); // 隨機 4 碼
+    
+    document.getElementById('displayRoomCode').innerText = roomCode;
+    updateLobby();
+    showScreen('screen-lobby');
+  }
+
+  // 1. 加入房間 (純前端模擬)
+  function joinRoom() {
+    const code = document.getElementById('roomCodeInput').value;
+    if(code.length === 4) {
+      alert("模擬加入成功！(實際連線需搭配 Firebase)");
+      createRoom(); // 測試用，直接當作創房處理
+    } else {
+      alert("請輸入有效的 4 碼房間代碼");
+    }
+  }
+
+  // 2. 新增機器人
+  function addBot() {
+    if (players.length >= 4) return;
+    const botNames = ["機器人_阿呆", "機器人_小音", "機器人_節奏"];
+    players.push({ name: botNames[players.length - 1], isBot: true });
+    updateLobby();
+  }
+
+  // 更新大廳玩家列表 UI
+  function updateLobby() {
+    const grid = document.getElementById('playerGrid');
+    grid.innerHTML = "";
+    
+    for(let i=0; i<4; i++) {
+      if(players[i]) {
+        grid.innerHTML += `<div class="player-card">${players[i].isBot ? '🤖' : '👤'} ${players[i].name}</div>`;
+      } else {
+        grid.innerHTML += `<div class="player-card empty">等待加入...</div>`;
+      }
+    }
+    
+    document.getElementById('btnAddBot').style.display = players.length >= 4 ? 'none' : 'block';
+  }
+
+  // 3. 開始遊戲
+  function startGame() {
+    const mode = document.getElementById('settingMode').value;
+    const modeNames = { "answer": "答題模式", "speed": "極速搶答", "mixed": "混合模式 (歌詞+音樂)" };
+    
+    document.getElementById('gameModeDisplay').innerText = modeNames[mode];
+    document.getElementById('lyricHint').style.display = mode === 'mixed' ? 'block' : 'none';
+    
+    showScreen('screen-game');
+  }
+
+  // 模擬答題
+  function submitAnswer() {
+    alert("已送出答案！系統將根據你的答題時間計算分數 (1~10分)。");
+  }
+
+  // 4. 結束遊戲與渲染折線圖
+  function endGame() {
+    showScreen('screen-result');
+    renderChart();
+  }
+
+  // 繪製賽後折線圖 (使用 Chart.js)
+  function renderChart() {
+    const ctx = document.getElementById('scoreChart').getContext('2d');
+    
+    if (chartInstance) { chartInstance.destroy(); } // 清除舊圖表
+    
+    // 模擬 5 回合的分數累積數據
+    const data = {
+      labels: ['第1題', '第2題', '第3題', '第4題', '第5題'],
+      datasets: [
+        {
+          label: players[0].name,
+          data: [10, 18, 28, 38, 48],
+          borderColor: '#8b5cf6',
+          tension: 0.3,
+          fill: false
+        }
+      ]
+    };
+
+    // 如果有加入機器人，新增機器人的數據線
+    if(players.length > 1) {
+      data.datasets.push({
+        label: players[1].name,
+        data: [5, 12, 12, 20, 30],
+        borderColor: '#10b981',
+        tension: 0.3,
+        fill: false
+      });
+    }
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: data,
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: true, text: '分數成長趨勢' }
+        },
+        scales: {
+          y: { beginAtZero: true, suggestedMax: 50 }
+        }
+      }
+    });
+  }
+
+  // 再來一局與解散
+  function playAgain() { showScreen('screen-lobby'); }
+  function disbandRoom() {
+    players = [];
+    showScreen('screen-welcome');
+  }
+</script>
+</body>
+</html>
